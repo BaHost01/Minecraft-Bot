@@ -9,7 +9,7 @@ const config = {
   gemini: {
     apiKey: process.env.GEMINI_API_KEY,
     model: 'gemini-1.5-flash-latest',
-    endpoint: 'https://generativelanguage.googleapis.com/v1beta/models'
+    endpoint: 'https://generativelanguage.googleapis.com/v1beta'
   },
   server: {
     host: process.env.SERVER_HOST || 'localhost',
