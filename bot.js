@@ -20,7 +20,7 @@ const config = {
     port: parseInt(process.env.PORT || '10000')
   },
   bot: {
-    thinkInterval: 8000, // Think every 8 seconds
+    thinkInterval: 8000,
     actionTimeout: 30000,
     maxConsecutiveErrors: 5
   }
@@ -227,8 +227,7 @@ What should I do next? Respond with your thinking and ONE specific action comman
       }
     };
 
-    // Correct v1beta endpoint format
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${config.gemini.model}:generateContent?key=${this.apiKey}`;
+    const url = `${config.gemini.endpoint}/models/${config.gemini.model}:generateContent?key=${this.apiKey}`;
     
     const res = await request(url, {
       method: 'POST',
@@ -316,7 +315,7 @@ class ActionExecutor {
 
     try {
       const result = await this.performAction(plan.action);
-      this.state.consecutiveErrors = 0; // Reset on success
+      this.state.consecutiveErrors = 0;
       this.state.addToHistory(plan.action, result.success ? '✓' : '✗', result.message);
       
       console.log(result.success ? '✅' : '❌', result.message);
@@ -342,7 +341,7 @@ class ActionExecutor {
       explore: () => this.explore(),
       attack: () => this.attack(),
       chat: () => this.chat(args.join(' ')),
-      wait: () => this.wait(),
+      wait: () => this.wait()
     };
 
     const actionFn = actions[command];
@@ -369,7 +368,7 @@ class ActionExecutor {
       return { success: false, message: `Invalid direction: ${direction}` };
     }
 
-    const steps = Math.min(blocks * 2, 20); // 2 steps per block, max 20
+    const steps = Math.min(blocks * 2, 20);
     const stepSize = blocks / steps;
 
     for (let i = 0; i < steps; i++) {
@@ -408,7 +407,6 @@ class ActionExecutor {
     }
 
     for (let i = 0; i < blocks; i++) {
-      // Jump up
       const jumpPos = {
         x: this.state.position.x + (dir.x * 0.3),
         y: this.state.position.y + 0.5,
@@ -426,7 +424,6 @@ class ActionExecutor {
 
       await this.sleep(200);
 
-      // Move forward and down
       const landPos = {
         x: this.state.position.x + (dir.x * 0.7),
         y: this.state.position.y - 0.3,
@@ -449,7 +446,6 @@ class ActionExecutor {
   }
 
   async mine(target) {
-    // Look down for ground blocks, forward for walls
     const lookDown = target.includes('down') || target.includes('stone') || target.includes('dirt');
     const pitch = lookDown ? 90 : 0;
 
@@ -474,7 +470,6 @@ class ActionExecutor {
       z: Math.floor(this.state.position.z + 1)
     };
 
-    // Start breaking
     this.client.write('player_action', {
       action: 'start_break',
       position: blockPos,
@@ -483,7 +478,6 @@ class ActionExecutor {
 
     await this.sleep(300);
 
-    // Continue breaking
     for (let i = 0; i < 3; i++) {
       this.client.write('player_action', {
         action: 'continue_break',
@@ -505,7 +499,6 @@ class ActionExecutor {
   }
 
   async attack() {
-    // Swing arm
     this.client.write('animate', {
       action: 'swing_arm',
       entity_id: 0n
@@ -618,22 +611,17 @@ class MinecraftBot extends EventEmitter {
 
   async aiLoop() {
     console.log('🤖 Starting Gemini AI control loop...\n');
-    console.log('=' .repeat(60));
+    console.log('='.repeat(60));
 
     while (this.isRunning) {
       try {
         this.thinkCount++;
         console.log(`\n${'='.repeat(60)}`);
         console.log(`🧠 AI Think Cycle #${this.thinkCount}`);
-        console.log(`${'='.repeat(60)}`);
+        console.log('='.repeat(60));
 
-        // Gemini thinks about what to do
         const decision = await this.ai.think(this.state);
-        
-        // Execute the decision
         await this.executor.execute(decision);
-        
-        // Wait before next decision
         await this.sleep(config.bot.thinkInterval);
         
       } catch (error) {
@@ -705,24 +693,20 @@ app.post('/command', async (req, res) => {
 async function main() {
   console.log('🚀 Gemini-Controlled Minecraft Bot v2.0\n');
 
-  // Start web server
   app.listen(config.web.port, () => {
     console.log(`🌐 Dashboard: http://localhost:${config.web.port}`);
     console.log(`📊 Endpoints: GET /, GET /history, POST /command\n`);
   });
 
-  // Create and connect bot
   bot = new MinecraftBot();
   await bot.connect();
 
-  // Handle graceful shutdown
   process.on('SIGINT', async () => {
     console.log('\n👋 Received shutdown signal');
     await bot.shutdown();
     process.exit(0);
   });
 
-  // Start AI control
   await bot.aiLoop();
 }
 
