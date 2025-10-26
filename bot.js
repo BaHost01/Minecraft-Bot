@@ -49,7 +49,7 @@ class BotState extends EventEmitter {
     this.lastUpdate = Date.now();
     this.isDay = true;
     this.consecutiveErrors = 0;
-    this.entityId = 0n;
+    this.entityId = 0;
   }
 
   update(data) {
@@ -397,8 +397,10 @@ class ActionExecutor {
         head_yaw: dir.yaw,
         mode: 0,
         on_ground: true,
-        ridden_runtime_id: 0n,
-        tick: 0n
+        ridden_runtime_id: 0,
+        teleport_cause: 0,
+        teleport_source_entity_type: 0,
+        tick: 0
       });
 
       this.state.position = newPos;
@@ -439,8 +441,10 @@ class ActionExecutor {
         head_yaw: dir.yaw,
         mode: 0,
         on_ground: false,
-        ridden_runtime_id: 0n,
-        tick: 0n
+        ridden_runtime_id: 0,
+        teleport_cause: 0,
+        teleport_source_entity_type: 0,
+        tick: 0
       });
 
       this.state.position = jumpPos;
@@ -460,8 +464,10 @@ class ActionExecutor {
         head_yaw: dir.yaw,
         mode: 0,
         on_ground: true,
-        ridden_runtime_id: 0n,
-        tick: 0n
+        ridden_runtime_id: 0,
+        teleport_cause: 0,
+        teleport_source_entity_type: 0,
+        tick: 0
       });
 
       this.state.position = landPos;
@@ -484,8 +490,10 @@ class ActionExecutor {
       head_yaw: this.state.rotation.head_yaw,
       mode: 0,
       on_ground: true,
-      ridden_runtime_id: 0n,
-      tick: 0n
+      ridden_runtime_id: 0,
+      teleport_cause: 0,
+      teleport_source_entity_type: 0,
+      tick: 0
     });
 
     await this.sleep(300);
@@ -637,7 +645,7 @@ class MinecraftBot extends EventEmitter {
 
     this.client.on('start_game', (pkt) => {
       if (pkt.runtime_entity_id) {
-        this.state.entityId = pkt.runtime_entity_id;
+        this.state.entityId = Number(pkt.runtime_entity_id);
         console.log('🆔 Entity ID:', this.state.entityId);
       }
       
@@ -724,8 +732,10 @@ class MinecraftBot extends EventEmitter {
           head_yaw: this.state.rotation.head_yaw,
           mode: 0,
           on_ground: true,
-          ridden_runtime_id: 0n,
-          tick: 0n
+          ridden_runtime_id: 0,
+          teleport_cause: 0,
+          teleport_source_entity_type: 0,
+          tick: 0
         });
       }
     }, 100);
