@@ -1,5 +1,5 @@
 services:
-  - type: worker
+  - type: web
     name: bedrock-gemini-bot
     env: node
     region: oregon
@@ -12,12 +12,12 @@ services:
       - key: NODE_VERSION
         value: 20.19.0
       - key: GEMINI_API_KEY
-        sync: false  # set manually in Render dashboard
+        sync: false
       - key: SERVER_HOST
-        value: your.minecraft.server.ip
+        value: ServDaAmizade.aternos.me
       - key: SERVER_PORT
-        value: "19132"
+        value: "55608"
       - key: USERNAME
         value: BotG
-      - key: KEEPALIVE_URL
-        sync: false #Gonna Set on Render Dashboard
+      - key: PORT
+        value: "10000" # Render auto-assigns one, but keep default fallback
