@@ -8,7 +8,7 @@ import { EventEmitter } from 'events';
 const config = {
   gemini: {
     apiKey: process.env.GEMINI_API_KEY,
-    model: 'gemini-2.5-flash',
+    model: 'gemini-2.0-flash-exp',
     endpoint: 'https://generativelanguage.googleapis.com/v1beta'
   },
   server: {
@@ -49,6 +49,7 @@ class BotState extends EventEmitter {
     this.lastUpdate = Date.now();
     this.isDay = true;
     this.consecutiveErrors = 0;
+    this.entityId = 0n;
   }
 
   update(data) {
@@ -255,7 +256,6 @@ What should I do next? Respond with your thinking and ONE specific action comman
   parseAction(response) {
     console.log('🧠 Gemini Response:\n', response, '\n');
 
-    // Extract action after "ACTION:" marker
     const actionMatch = response.match(/ACTION:\s*(.+?)(?:\n|$)/i);
     if (actionMatch) {
       const actionStr = actionMatch[1].trim();
@@ -265,7 +265,6 @@ What should I do next? Respond with your thinking and ONE specific action comman
       };
     }
 
-    // Try to find action commands in the text
     const commands = ['move', 'mine', 'explore', 'attack', 'chat', 'wait', 'jumpmove'];
     for (const cmd of commands) {
       const regex = new RegExp(`${cmd}\\s+[^\\n]+`, 'i');
@@ -278,7 +277,6 @@ What should I do next? Respond with your thinking and ONE specific action comman
       }
     }
 
-    // Fallback
     return {
       action: 'explore',
       reasoning: 'Could not parse action, defaulting to explore'
@@ -368,7 +366,7 @@ class ActionExecutor {
       return { success: false, message: `Invalid direction: ${direction}` };
     }
 
-    const steps = Math.min(blocks * 4, 40); // More steps for smoother movement
+    const steps = Math.min(blocks * 4, 40);
     const stepSize = blocks / steps;
 
     for (let i = 0; i < steps; i++) {
@@ -379,15 +377,15 @@ class ActionExecutor {
       };
 
       this.client.write('move_player', {
+        runtime_id: this.state.entityId,
         position: newPos,
         rotation: { yaw: dir.yaw, pitch: 0, head_yaw: dir.yaw },
-        mode: 0, // Normal mode
+        mode: 0,
         on_ground: true,
-        ridden_entity_id: 0n,
-        tick: 0n
+        ridden_runtime_id: 0n,
+        tick: BigInt(Date.now())
       });
 
-      // Update local state
       this.state.position = newPos;
       this.state.rotation = { yaw: dir.yaw, pitch: 0 };
 
@@ -411,7 +409,6 @@ class ActionExecutor {
     }
 
     for (let i = 0; i < blocks; i++) {
-      // Jump up
       const jumpPos = {
         x: this.state.position.x + (dir.x * 0.5),
         y: this.state.position.y + 1.0,
@@ -419,18 +416,18 @@ class ActionExecutor {
       };
 
       this.client.write('move_player', {
+        runtime_id: this.state.entityId,
         position: jumpPos,
         rotation: { yaw: dir.yaw, pitch: 0, head_yaw: dir.yaw },
         mode: 0,
         on_ground: false,
-        ridden_entity_id: 0n,
-        tick: 0n
+        ridden_runtime_id: 0n,
+        tick: BigInt(Date.now())
       });
 
       this.state.position = jumpPos;
       await this.sleep(150);
 
-      // Move forward and land
       const landPos = {
         x: this.state.position.x + (dir.x * 0.5),
         y: this.state.position.y - 1.0,
@@ -438,12 +435,13 @@ class ActionExecutor {
       };
 
       this.client.write('move_player', {
+        runtime_id: this.state.entityId,
         position: landPos,
         rotation: { yaw: dir.yaw, pitch: 0, head_yaw: dir.yaw },
         mode: 0,
         on_ground: true,
-        ridden_entity_id: 0n,
-        tick: 0n
+        ridden_runtime_id: 0n,
+        tick: BigInt(Date.now())
       });
 
       this.state.position = landPos;
@@ -457,15 +455,15 @@ class ActionExecutor {
     const lookDown = target.includes('down') || target.includes('stone') || target.includes('dirt');
     const pitch = lookDown ? 90 : 0;
 
-    // Update rotation
     this.state.rotation.pitch = pitch;
     this.client.write('move_player', {
+      runtime_id: this.state.entityId,
       position: this.state.position,
       rotation: { yaw: this.state.rotation.yaw, pitch, head_yaw: this.state.rotation.yaw },
       mode: 0,
       on_ground: true,
-      ridden_entity_id: 0n,
-      tick: 0n
+      ridden_runtime_id: 0n,
+      tick: BigInt(Date.now())
     });
 
     await this.sleep(300);
@@ -480,40 +478,23 @@ class ActionExecutor {
       z: Math.floor(this.state.position.z) + (this.state.rotation.yaw === 0 ? 1 : -1)
     };
 
-    // Start breaking
     this.client.write('player_action', {
-      action: 'start_break',
+      runtime_entity_id: this.state.entityId,
+      action: 0,
       position: blockPos,
-      face: 1,
-      hotbar_slot: 0
+      face: 1
     });
 
     await this.sleep(500);
 
-    // Continue breaking with animation
     for (let i = 0; i < 5; i++) {
       this.client.write('animate', {
-        action: 'swing_arm',
-        entity_id: 0n
-      });
-      
-      this.client.write('player_action', {
-        action: 'continue_break',
-        position: blockPos,
-        face: 1,
-        hotbar_slot: 0
+        action_id: 1,
+        runtime_entity_id: this.state.entityId
       });
       
       await this.sleep(400);
     }
-
-    // Finish breaking
-    this.client.write('player_action', {
-      action: 'abort_break',
-      position: blockPos,
-      face: 1,
-      hotbar_slot: 0
-    });
 
     return { success: true, message: `Mining ${target}` };
   }
@@ -528,8 +509,8 @@ class ActionExecutor {
 
   async attack() {
     this.client.write('animate', {
-      action: 'swing_arm',
-      entity_id: 0n
+      action_id: 1,
+      runtime_entity_id: this.state.entityId
     });
 
     await this.sleep(500);
@@ -576,6 +557,7 @@ class MinecraftBot extends EventEmitter {
     this.executor = null;
     this.isRunning = false;
     this.thinkCount = 0;
+    this.positionSyncInterval = null;
   }
 
   async connect() {
@@ -595,6 +577,7 @@ class MinecraftBot extends EventEmitter {
       this.client.once('spawn', () => {
         console.log('✅ Bot spawned and ready!\n');
         this.isRunning = true;
+        this.startPositionSync();
         resolve();
       });
     });
@@ -604,47 +587,25 @@ class MinecraftBot extends EventEmitter {
     this.client.on('disconnect', (reason) => {
       console.log('❌ Disconnected:', reason);
       this.isRunning = false;
+      if (this.positionSyncInterval) {
+        clearInterval(this.positionSyncInterval);
+      }
     });
 
     this.client.on('error', (error) => {
       console.error('🚨 Client error:', error.message);
     });
-    // In setupEventHandlers(), add:
-this.client.on('spawn', () => {
-  // Send player metadata to make bot damageable
-  this.client.write('set_entity_data', {
-    runtime_entity_id: 0n,
-    metadata: [],
-    tick: 0n
-  });
-});
 
     this.client.on('text', (pkt) => {
       console.log(`💬 [CHAT] ${pkt.message}`);
     });
 
-    // Handle server position updates
-    this.client.on('move_player', (pkt) => {
-      if (pkt.position) {
-        this.state.update({
-          position: pkt.position,
-          rotation: pkt.rotation || this.state.rotation
-        });
-        
-        // Acknowledge server position
-        this.client.write('move_player', {
-          position: pkt.position,
-          rotation: pkt.rotation || this.state.rotation,
-          mode: 0, // Mode 0 = normal
-          on_ground: true,
-          ridden_entity_id: 0n,
-          tick: 0n
-        });
-      }
-    });
-
-    // Handle initial spawn position
     this.client.on('start_game', (pkt) => {
+      if (pkt.runtime_entity_id) {
+        this.state.entityId = pkt.runtime_entity_id;
+        console.log('🆔 Entity ID:', this.state.entityId);
+      }
+      
       if (pkt.player_position) {
         console.log('📍 Spawn position:', pkt.player_position);
         this.state.update({
@@ -654,9 +615,19 @@ this.client.on('spawn', () => {
       }
     });
 
+    this.client.on('move_player', (pkt) => {
+      if (pkt.position && pkt.runtime_id === this.state.entityId) {
+        this.state.update({
+          position: pkt.position,
+          rotation: pkt.rotation || this.state.rotation
+        });
+      }
+    });
+
     this.client.on('set_health', (pkt) => {
       if (pkt.health !== undefined) {
         this.state.update({ health: pkt.health });
+        console.log(`💚 Health: ${pkt.health}/20`);
       }
     });
 
@@ -667,19 +638,30 @@ this.client.on('spawn', () => {
       });
     });
 
-    // Add periodic position sync
-    setInterval(() => {
-      if (this.isRunning && this.state.position) {
+    this.client.on('update_attributes', (pkt) => {
+      if (pkt.runtime_entity_id === this.state.entityId && pkt.attributes) {
+        const healthAttr = pkt.attributes.find(a => a.name === 'minecraft:health');
+        if (healthAttr) {
+          this.state.update({ health: healthAttr.current });
+        }
+      }
+    });
+  }
+
+  startPositionSync() {
+    this.positionSyncInterval = setInterval(() => {
+      if (this.isRunning && this.state.position && this.state.entityId) {
         this.client.write('move_player', {
+          runtime_id: this.state.entityId,
           position: this.state.position,
           rotation: this.state.rotation,
           mode: 0,
           on_ground: true,
-          ridden_entity_id: 0n,
-          tick: 0n
+          ridden_runtime_id: 0n,
+          tick: BigInt(Date.now())
         });
       }
-    }, 50); // Sync every 50ms
+    }, 100);
   }
 
   async aiLoop() {
@@ -711,6 +693,9 @@ this.client.on('spawn', () => {
   async shutdown() {
     console.log('\n🛑 Shutting down bot...');
     this.isRunning = false;
+    if (this.positionSyncInterval) {
+      clearInterval(this.positionSyncInterval);
+    }
     if (this.client) {
       this.client.close();
     }
@@ -733,7 +718,8 @@ app.get('/', (req, res) => {
     status: 'online',
     bot: context.current,
     recentActions: context.recentActions,
-    thinkCycles: bot.thinkCount
+    thinkCycles: bot.thinkCount,
+    entityId: bot.state.entityId.toString()
   });
 });
 
@@ -764,7 +750,7 @@ app.post('/command', async (req, res) => {
 
 // === MAIN ===
 async function main() {
-  console.log('🚀 Gemini-Controlled Minecraft Bot v2.0\n');
+  console.log('🚀 Gemini-Controlled Minecraft Bot v3.0\n');
 
   app.listen(config.web.port, () => {
     console.log(`🌐 Dashboard: http://localhost:${config.web.port}`);
