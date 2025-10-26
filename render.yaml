@@ -14,8 +14,10 @@ services:
       - key: GEMINI_API_KEY
         sync: false  # set manually in Render dashboard
       - key: SERVER_HOST
-        value: ServDaAmizade.aternos.me
+        value: your.minecraft.server.ip
       - key: SERVER_PORT
-        value: "55608"
+        value: "19132"
       - key: USERNAME
         value: BotG
+      - key: KEEPALIVE_URL
+        sync: false #Gonna Set on Render Dashboard
