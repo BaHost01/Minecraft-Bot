@@ -383,7 +383,7 @@ class ActionExecutor {
         mode: 0,
         on_ground: true,
         ridden_runtime_id: 0n,
-        tick: BigInt(Date.now())
+        tick: 0n
       });
 
       this.state.position = newPos;
@@ -422,7 +422,7 @@ class ActionExecutor {
         mode: 0,
         on_ground: false,
         ridden_runtime_id: 0n,
-        tick: BigInt(Date.now())
+        tick: 0n
       });
 
       this.state.position = jumpPos;
@@ -441,7 +441,7 @@ class ActionExecutor {
         mode: 0,
         on_ground: true,
         ridden_runtime_id: 0n,
-        tick: BigInt(Date.now())
+        tick: 0n
       });
 
       this.state.position = landPos;
@@ -463,7 +463,7 @@ class ActionExecutor {
       mode: 0,
       on_ground: true,
       ridden_runtime_id: 0n,
-      tick: BigInt(Date.now())
+      tick: 0n
     });
 
     await this.sleep(300);
@@ -658,7 +658,7 @@ class MinecraftBot extends EventEmitter {
           mode: 0,
           on_ground: true,
           ridden_runtime_id: 0n,
-          tick: BigInt(Date.now())
+          tick: 0n
         });
       }
     }, 100);
