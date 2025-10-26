@@ -8,7 +8,7 @@ import { EventEmitter } from 'events';
 const config = {
   gemini: {
     apiKey: process.env.GEMINI_API_KEY,
-    model: 'gemini-1.5-flash-latest',
+    model: 'gemini-2.5-flash',
     endpoint: 'https://generativelanguage.googleapis.com/v1beta'
   },
   server: {
