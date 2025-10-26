@@ -609,6 +609,15 @@ class MinecraftBot extends EventEmitter {
     this.client.on('error', (error) => {
       console.error('🚨 Client error:', error.message);
     });
+    // In setupEventHandlers(), add:
+this.client.on('spawn', () => {
+  // Send player metadata to make bot damageable
+  this.client.write('set_entity_data', {
+    runtime_entity_id: 0n,
+    metadata: [],
+    tick: 0n
+  });
+});
 
     this.client.on('text', (pkt) => {
       console.log(`💬 [CHAT] ${pkt.message}`);
