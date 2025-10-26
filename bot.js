@@ -1,32 +1,26 @@
 import 'dotenv/config';
 import bedrock from 'bedrock-protocol';
 import { request } from 'undici';
+import express from 'express';
 
 // === CONFIG ===
 const {
   GEMINI_API_KEY,
   SERVER_HOST = 'localhost',
-  SERVER_PORT = 55608,
+  SERVER_PORT = 19132,
   USERNAME = 'BotG',
-  KEEPALIVE_URL
+  PORT = 10000
 } = process.env;
 
 if (!GEMINI_API_KEY) {
-  console.error('❌ Missing GEMINI_API_KEY. Set it in Render dashboard.');
+  console.error('❌ Missing GEMINI_API_KEY');
   process.exit(1);
 }
 
-// === KEEPALIVE LOOP ===
-if (KEEPALIVE_URL) {
-  setInterval(async () => {
-    try {
-      const res = await fetch(KEEPALIVE_URL);
-      console.log(`[KeepAlive] Ping ${KEEPALIVE_URL} → ${res.status}`);
-    } catch (err) {
-      console.error('[KeepAlive] Failed:', err.message);
-    }
-  }, 1000 * 60 * 5); // every 5 min
-}
+// === EXPRESS KEEPALIVE SERVER ===
+const app = express();
+app.get('/', (req, res) => res.send('✅ Bot online and thinking...'));
+app.listen(PORT, () => console.log(`🌐 Web server running on port ${PORT}`));
 
 // === CONNECT TO BEDROCK ===
 const client = bedrock.createClient({
@@ -38,30 +32,28 @@ const client = bedrock.createClient({
 
 client.on('connect', () => console.log(`✅ Connected to ${SERVER_HOST}:${SERVER_PORT}`));
 client.on('disconnect', e => console.log('❌ Disconnected:', e));
-
-// Chat messages
 client.on('text', pkt => console.log(`[CHAT] ${pkt.message}`));
-
-// Basic player position updates (depends on lib version)
 client.on('move_player', pkt => {
   console.log(`📍 Pos: x=${pkt.position.x.toFixed(1)} y=${pkt.position.y.toFixed(1)} z=${pkt.position.z.toFixed(1)}`);
 });
 
-// === GEMINI QUERY ===
+// === GEMINI INTEGRATION ===
 async function askGemini(prompt) {
   const body = {
     contents: [{ parts: [{ text: prompt }]}],
   };
 
-  // replace with real Gemini endpoint
-  const res = await request('https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${GEMINI_API_KEY}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify(body)
-  });
+  const res = await request(
+    'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent',
+    {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${GEMINI_API_KEY}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(body)
+    }
+  );
 
   if (res.statusCode >= 400) {
     const err = await res.body.text();
@@ -72,7 +64,7 @@ async function askGemini(prompt) {
   return data?.candidates?.[0]?.content?.parts?.[0]?.text ?? 'No response';
 }
 
-// === MAIN PLANNING LOOP ===
+// === MAIN LOOP ===
 async function planningLoop() {
   while (true) {
     try {
@@ -91,7 +83,7 @@ async function planningLoop() {
     } catch (err) {
       console.error('Planning error:', err.message);
     }
-    await new Promise(r => setTimeout(r, 8000)); // wait 8 s
+    await new Promise(r => setTimeout(r, 8000));
   }
 }
 
