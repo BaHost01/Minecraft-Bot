@@ -36,7 +36,7 @@ class BotState extends EventEmitter {
   constructor() {
     super();
     this.position = { x: 0, y: 0, z: 0 };
-    this.rotation = { yaw: 0, pitch: 0 };
+    this.rotation = { yaw: 0, pitch: 0, head_yaw: 0 };
     this.health = 20;
     this.hunger = 20;
     this.inventory = [];
@@ -392,7 +392,9 @@ class ActionExecutor {
       this.client.write('move_player', {
         runtime_id: this.state.entityId,
         position: newPos,
-        rotation: { yaw: dir.yaw, pitch: 0, head_yaw: dir.yaw },
+        pitch: this.state.rotation.pitch,
+        yaw: dir.yaw,
+        head_yaw: dir.yaw,
         mode: 0,
         on_ground: true,
         ridden_runtime_id: 0n,
@@ -400,7 +402,8 @@ class ActionExecutor {
       });
 
       this.state.position = newPos;
-      this.state.rotation = { yaw: dir.yaw, pitch: 0 };
+      this.state.rotation.yaw = dir.yaw;
+      this.state.rotation.head_yaw = dir.yaw;
 
       await this.sleep(50);
     }
@@ -431,7 +434,9 @@ class ActionExecutor {
       this.client.write('move_player', {
         runtime_id: this.state.entityId,
         position: jumpPos,
-        rotation: { yaw: dir.yaw, pitch: 0, head_yaw: dir.yaw },
+        pitch: this.state.rotation.pitch,
+        yaw: dir.yaw,
+        head_yaw: dir.yaw,
         mode: 0,
         on_ground: false,
         ridden_runtime_id: 0n,
@@ -450,7 +455,9 @@ class ActionExecutor {
       this.client.write('move_player', {
         runtime_id: this.state.entityId,
         position: landPos,
-        rotation: { yaw: dir.yaw, pitch: 0, head_yaw: dir.yaw },
+        pitch: this.state.rotation.pitch,
+        yaw: dir.yaw,
+        head_yaw: dir.yaw,
         mode: 0,
         on_ground: true,
         ridden_runtime_id: 0n,
@@ -466,13 +473,15 @@ class ActionExecutor {
 
   async mine(target) {
     const lookDown = target.includes('down') || target.includes('stone') || target.includes('dirt');
-    const pitch = lookDown ? 90 : 0;
+    const pitch = lookDown ? 90 : this.state.rotation.pitch;
 
     this.state.rotation.pitch = pitch;
     this.client.write('move_player', {
       runtime_id: this.state.entityId,
       position: this.state.position,
-      rotation: { yaw: this.state.rotation.yaw, pitch, head_yaw: this.state.rotation.yaw },
+      pitch: pitch,
+      yaw: this.state.rotation.yaw,
+      head_yaw: this.state.rotation.head_yaw,
       mode: 0,
       on_ground: true,
       ridden_runtime_id: 0n,
@@ -481,15 +490,21 @@ class ActionExecutor {
 
     await this.sleep(300);
 
-    const blockPos = lookDown ? {
-      x: Math.floor(this.state.position.x),
-      y: Math.floor(this.state.position.y) - 1,
-      z: Math.floor(this.state.position.z)
-    } : {
-      x: Math.floor(this.state.position.x + Math.sin(this.state.rotation.yaw * Math.PI / 180)),
-      y: Math.floor(this.state.position.y),
-      z: Math.floor(this.state.position.z + Math.cos(this.state.rotation.yaw * Math.PI / 180))
-    };
+    let blockPos;
+    if (lookDown) {
+      blockPos = {
+        x: Math.floor(this.state.position.x),
+        y: Math.floor(this.state.position.y) - 1,
+        z: Math.floor(this.state.position.z)
+      };
+    } else {
+      const yawRad = this.state.rotation.yaw * Math.PI / 180;
+      blockPos = {
+        x: Math.floor(this.state.position.x - Math.sin(yawRad)),
+        y: Math.floor(this.state.position.y),
+        z: Math.floor(this.state.position.z + Math.cos(yawRad))
+      };
+    }
 
     this.client.write('player_action', {
       runtime_entity_id: this.state.entityId,
@@ -630,7 +645,7 @@ class MinecraftBot extends EventEmitter {
         console.log('📍 Spawn position:', pkt.player_position);
         this.state.update({
           position: pkt.player_position,
-          rotation: { yaw: 0, pitch: 0 }
+          rotation: { yaw: 0, pitch: 0, head_yaw: 0 }
         });
       }
     });
@@ -639,7 +654,11 @@ class MinecraftBot extends EventEmitter {
       if (pkt.position && pkt.runtime_id === this.state.entityId) {
         this.state.update({
           position: pkt.position,
-          rotation: pkt.rotation || this.state.rotation
+          rotation: {
+            pitch: pkt.pitch ?? this.state.rotation.pitch,
+            yaw: pkt.yaw ?? this.state.rotation.yaw,
+            head_yaw: pkt.head_yaw ?? this.state.rotation.head_yaw
+          }
         });
       }
     });
@@ -700,7 +719,9 @@ class MinecraftBot extends EventEmitter {
         this.client.write('move_player', {
           runtime_id: this.state.entityId,
           position: this.state.position,
-          rotation: this.state.rotation,
+          pitch: this.state.rotation.pitch,
+          yaw: this.state.rotation.yaw,
+          head_yaw: this.state.rotation.head_yaw,
           mode: 0,
           on_ground: true,
           ridden_runtime_id: 0n,
