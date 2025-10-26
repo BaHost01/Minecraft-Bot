@@ -8,8 +8,8 @@ import { EventEmitter } from 'events';
 const config = {
   gemini: {
     apiKey: process.env.GEMINI_API_KEY,
-    model: 'gemini-1.5-flash-latest',
-    endpoint: 'https://generativelanguage.googleapis.com/v1beta/models'
+    model: 'gemini-1.5-flash',
+    endpoint: 'https://generativelanguage.googleapis.com/v1/models'
   },
   server: {
     host: process.env.SERVER_HOST || 'localhost',
@@ -227,11 +227,14 @@ What should I do next? Respond with your thinking and ONE specific action comman
       }
     };
 
+    // Use v1 API with key as query parameter
     const url = `${config.gemini.endpoint}/${config.gemini.model}:generateContent?key=${this.apiKey}`;
     
     const res = await request(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 
+        'Content-Type': 'application/json'
+      },
       body: JSON.stringify(body)
     });
 
