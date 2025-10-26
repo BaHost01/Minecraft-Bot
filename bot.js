@@ -8,7 +8,7 @@ import { EventEmitter } from 'events';
 const config = {
   gemini: {
     apiKey: process.env.GEMINI_API_KEY,
-    model: 'gemini-2.5-flash',
+    model: 'gemini-1.5-flash-latest',
     endpoint: 'https://generativelanguage.googleapis.com/v1beta'
   },
   server: {
@@ -368,7 +368,7 @@ class ActionExecutor {
       return { success: false, message: `Invalid direction: ${direction}` };
     }
 
-    const steps = Math.min(blocks * 2, 20);
+    const steps = Math.min(blocks * 4, 40); // More steps for smoother movement
     const stepSize = blocks / steps;
 
     for (let i = 0; i < steps; i++) {
@@ -381,13 +381,17 @@ class ActionExecutor {
       this.client.write('move_player', {
         position: newPos,
         rotation: { yaw: dir.yaw, pitch: 0, head_yaw: dir.yaw },
-        mode: 1,
+        mode: 0, // Normal mode
         on_ground: true,
         ridden_entity_id: 0n,
         tick: 0n
       });
 
-      await this.sleep(100);
+      // Update local state
+      this.state.position = newPos;
+      this.state.rotation = { yaw: dir.yaw, pitch: 0 };
+
+      await this.sleep(50);
     }
 
     return { success: true, message: `Moved ${direction} ${blocks} blocks` };
@@ -407,39 +411,43 @@ class ActionExecutor {
     }
 
     for (let i = 0; i < blocks; i++) {
+      // Jump up
       const jumpPos = {
-        x: this.state.position.x + (dir.x * 0.3),
-        y: this.state.position.y + 0.5,
-        z: this.state.position.z + (dir.z * 0.3)
+        x: this.state.position.x + (dir.x * 0.5),
+        y: this.state.position.y + 1.0,
+        z: this.state.position.z + (dir.z * 0.5)
       };
 
       this.client.write('move_player', {
         position: jumpPos,
         rotation: { yaw: dir.yaw, pitch: 0, head_yaw: dir.yaw },
-        mode: 1,
+        mode: 0,
         on_ground: false,
         ridden_entity_id: 0n,
         tick: 0n
       });
 
-      await this.sleep(200);
+      this.state.position = jumpPos;
+      await this.sleep(150);
 
+      // Move forward and land
       const landPos = {
-        x: this.state.position.x + (dir.x * 0.7),
-        y: this.state.position.y - 0.3,
-        z: this.state.position.z + (dir.z * 0.7)
+        x: this.state.position.x + (dir.x * 0.5),
+        y: this.state.position.y - 1.0,
+        z: this.state.position.z + (dir.z * 0.5)
       };
 
       this.client.write('move_player', {
         position: landPos,
         rotation: { yaw: dir.yaw, pitch: 0, head_yaw: dir.yaw },
-        mode: 1,
+        mode: 0,
         on_ground: true,
         ridden_entity_id: 0n,
         tick: 0n
       });
 
-      await this.sleep(300);
+      this.state.position = landPos;
+      await this.sleep(150);
     }
 
     return { success: true, message: `Jump-moved ${direction} ${blocks} blocks` };
@@ -449,16 +457,18 @@ class ActionExecutor {
     const lookDown = target.includes('down') || target.includes('stone') || target.includes('dirt');
     const pitch = lookDown ? 90 : 0;
 
+    // Update rotation
+    this.state.rotation.pitch = pitch;
     this.client.write('move_player', {
       position: this.state.position,
       rotation: { yaw: this.state.rotation.yaw, pitch, head_yaw: this.state.rotation.yaw },
-      mode: 1,
+      mode: 0,
       on_ground: true,
       ridden_entity_id: 0n,
       tick: 0n
     });
 
-    await this.sleep(200);
+    await this.sleep(300);
 
     const blockPos = lookDown ? {
       x: Math.floor(this.state.position.x),
@@ -467,25 +477,43 @@ class ActionExecutor {
     } : {
       x: Math.floor(this.state.position.x),
       y: Math.floor(this.state.position.y),
-      z: Math.floor(this.state.position.z + 1)
+      z: Math.floor(this.state.position.z) + (this.state.rotation.yaw === 0 ? 1 : -1)
     };
 
+    // Start breaking
     this.client.write('player_action', {
       action: 'start_break',
       position: blockPos,
-      face: 1
+      face: 1,
+      hotbar_slot: 0
     });
 
-    await this.sleep(300);
+    await this.sleep(500);
 
-    for (let i = 0; i < 3; i++) {
+    // Continue breaking with animation
+    for (let i = 0; i < 5; i++) {
+      this.client.write('animate', {
+        action: 'swing_arm',
+        entity_id: 0n
+      });
+      
       this.client.write('player_action', {
         action: 'continue_break',
         position: blockPos,
-        face: 1
+        face: 1,
+        hotbar_slot: 0
       });
+      
       await this.sleep(400);
     }
+
+    // Finish breaking
+    this.client.write('player_action', {
+      action: 'abort_break',
+      position: blockPos,
+      face: 1,
+      hotbar_slot: 0
+    });
 
     return { success: true, message: `Mining ${target}` };
   }
@@ -586,11 +614,33 @@ class MinecraftBot extends EventEmitter {
       console.log(`💬 [CHAT] ${pkt.message}`);
     });
 
+    // Handle server position updates
     this.client.on('move_player', (pkt) => {
       if (pkt.position) {
         this.state.update({
           position: pkt.position,
           rotation: pkt.rotation || this.state.rotation
+        });
+        
+        // Acknowledge server position
+        this.client.write('move_player', {
+          position: pkt.position,
+          rotation: pkt.rotation || this.state.rotation,
+          mode: 0, // Mode 0 = normal
+          on_ground: true,
+          ridden_entity_id: 0n,
+          tick: 0n
+        });
+      }
+    });
+
+    // Handle initial spawn position
+    this.client.on('start_game', (pkt) => {
+      if (pkt.player_position) {
+        console.log('📍 Spawn position:', pkt.player_position);
+        this.state.update({
+          position: pkt.player_position,
+          rotation: { yaw: 0, pitch: 0 }
         });
       }
     });
@@ -607,6 +657,20 @@ class MinecraftBot extends EventEmitter {
         gamePhase: this.state.determineGamePhase()
       });
     });
+
+    // Add periodic position sync
+    setInterval(() => {
+      if (this.isRunning && this.state.position) {
+        this.client.write('move_player', {
+          position: this.state.position,
+          rotation: this.state.rotation,
+          mode: 0,
+          on_ground: true,
+          ridden_entity_id: 0n,
+          tick: 0n
+        });
+      }
+    }, 50); // Sync every 50ms
   }
 
   async aiLoop() {
