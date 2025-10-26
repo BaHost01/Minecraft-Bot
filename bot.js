@@ -55,6 +55,7 @@ class BotState extends EventEmitter {
   update(data) {
     Object.assign(this, data);
     this.lastUpdate = Date.now();
+    this.filterNearby();
     this.emit('stateChanged', this);
   }
 
@@ -80,7 +81,8 @@ class BotState extends EventEmitter {
         position: `(${this.position.x.toFixed(1)}, ${this.position.y.toFixed(1)}, ${this.position.z.toFixed(1)})`,
         health: `${this.health}/20`,
         hunger: `${this.hunger}/20`,
-        inventoryCount: this.inventory.length,
+        inventory: this.inventory.map(i => `${i.count || 1}x ${i.name?.replace('minecraft:', '') || 'unknown'}`).join(', ') || 'Empty',
+        nearbyEntities: this.nearbyEntities.map(e => `${e.type.replace('minecraft:', '')} at ${Math.sqrt((e.position.x - this.position.x)**2 + (e.position.y - this.position.y)**2 + (e.position.z - this.position.z)**2).toFixed(1)} blocks away`).join('; ') || 'None',
         gamePhase: this.gamePhase,
         currentGoal: this.currentGoal,
         timeOfDay: this.isDay ? 'Day' : 'Night'
@@ -101,6 +103,15 @@ class BotState extends EventEmitter {
       return 'mid';
     }
     return 'early';
+  }
+
+  filterNearby() {
+    this.nearbyEntities = this.nearbyEntities.filter(e => {
+      const dx = e.position.x - this.position.x;
+      const dy = e.position.y - this.position.y;
+      const dz = e.position.z - this.position.z;
+      return Math.sqrt(dx*dx + dy*dy + dz*dz) < 20;
+    });
   }
 }
 
@@ -127,7 +138,7 @@ AVAILABLE ACTIONS (respond with exact command):
 SURVIVAL STRATEGY:
 PHASE 1 (EARLY - First 5 minutes):
 1. Punch trees → get wood (move to trees, mine wood)
-2. Craft wooden pickaxe (chat /give @s wooden_pickaxe)
+2. Craft wooden pickaxe (chat /give @s minecraft:wooden_pickaxe)
 3. Mine stone → upgrade to stone tools
 4. Find coal for torches
 5. Build simple shelter before night
@@ -151,11 +162,12 @@ CRITICAL RULES:
 • Must have tools before mining stone/iron
 • Be SPECIFIC: "move north 5" not just "move"
 • Take ONE action per response
+• Observe nearby entities and react: attack if hostile close (e.g., zombie, skeleton)
 
 RESPONSE FORMAT:
 Think step-by-step, then provide ONE specific action:
 <thinking>
-Current situation: [analyze state]
+Current situation: [analyze state including nearby entities]
 Next logical step: [reasoning]
 </thinking>
 
@@ -208,7 +220,8 @@ Health: ${context.current.health} | Hunger: ${context.current.hunger}
 Phase: ${context.current.gamePhase}
 Goal: ${context.current.currentGoal}
 Time: ${context.current.timeOfDay}
-Inventory: ${context.current.inventoryCount} items
+Inventory: ${context.current.inventory}
+Nearby Entities: ${context.current.nearbyEntities}
 
 RECENT ACTIONS:
 ${recentHistory}
@@ -473,14 +486,14 @@ class ActionExecutor {
       y: Math.floor(this.state.position.y) - 1,
       z: Math.floor(this.state.position.z)
     } : {
-      x: Math.floor(this.state.position.x),
+      x: Math.floor(this.state.position.x + Math.sin(this.state.rotation.yaw * Math.PI / 180)),
       y: Math.floor(this.state.position.y),
-      z: Math.floor(this.state.position.z) + (this.state.rotation.yaw === 0 ? 1 : -1)
+      z: Math.floor(this.state.position.z + Math.cos(this.state.rotation.yaw * Math.PI / 180))
     };
 
     this.client.write('player_action', {
       runtime_entity_id: this.state.entityId,
-      action: 0,
+      action: 0, // start_digging
       position: blockPos,
       face: 1
     });
@@ -495,6 +508,13 @@ class ActionExecutor {
       
       await this.sleep(400);
     }
+
+    this.client.write('player_action', {
+      runtime_entity_id: this.state.entityId,
+      action: 2, // stop_digging
+      position: blockPos,
+      face: 1
+    });
 
     return { success: true, message: `Mining ${target}` };
   }
@@ -624,10 +644,45 @@ class MinecraftBot extends EventEmitter {
       }
     });
 
-    this.client.on('set_health', (pkt) => {
-      if (pkt.health !== undefined) {
-        this.state.update({ health: pkt.health });
-        console.log(`💚 Health: ${pkt.health}/20`);
+    this.client.on('set_time', (pkt) => {
+      const timeOfDay = Math.abs(pkt.time) % 24000;
+      this.state.update({ isDay: timeOfDay < 13000 });
+    });
+
+    this.client.on('update_attributes', (pkt) => {
+      if (pkt.runtime_entity_id === this.state.entityId && pkt.attributes) {
+        const healthAttr = pkt.attributes.find(a => a.name === 'minecraft:health');
+        if (healthAttr) {
+          this.state.update({ health: healthAttr.value });
+        }
+        const hungerAttr = pkt.attributes.find(a => a.name === 'minecraft:player.hunger');
+        if (hungerAttr) {
+          this.state.update({ hunger: hungerAttr.value });
+        }
+      }
+    });
+
+    this.client.on('add_entity', (pkt) => {
+      if (pkt.runtime_entity_id !== this.state.entityId) {
+        this.state.nearbyEntities.push({
+          uniqueId: pkt.unique_entity_id,
+          runtimeId: pkt.runtime_entity_id,
+          type: pkt.type,
+          position: pkt.position
+        });
+        this.state.filterNearby();
+      }
+    });
+
+    this.client.on('remove_entity', (pkt) => {
+      this.state.nearbyEntities = this.state.nearbyEntities.filter(e => e.uniqueId !== pkt.unique_entity_id);
+    });
+
+    this.client.on('move_entity', (pkt) => {
+      const ent = this.state.nearbyEntities.find(e => e.runtimeId === pkt.runtime_entity_id);
+      if (ent) {
+        ent.position = pkt.position;
+        this.state.filterNearby();
       }
     });
 
@@ -636,15 +691,6 @@ class MinecraftBot extends EventEmitter {
         inventory: pkt.items || [],
         gamePhase: this.state.determineGamePhase()
       });
-    });
-
-    this.client.on('update_attributes', (pkt) => {
-      if (pkt.runtime_entity_id === this.state.entityId && pkt.attributes) {
-        const healthAttr = pkt.attributes.find(a => a.name === 'minecraft:health');
-        if (healthAttr) {
-          this.state.update({ health: healthAttr.current });
-        }
-      }
     });
   }
 
@@ -675,6 +721,7 @@ class MinecraftBot extends EventEmitter {
         console.log(`🧠 AI Think Cycle #${this.thinkCount}`);
         console.log('='.repeat(60));
 
+        this.state.filterNearby();
         const decision = await this.ai.think(this.state);
         await this.executor.execute(decision);
         await this.sleep(config.bot.thinkInterval);
